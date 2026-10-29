@@ -1,0 +1,30 @@
+import { Check, FilePenLine, Plus, Save, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useWorkspace } from '../app/WorkspaceContext'
+import { EmptyState, SourceLabel, StatusBadge } from '../components/ui'
+import type { ServiceRecord } from '../types/domain'
+import { formatDate, taipeiDay } from '../utils/format'
+
+const blankRecord = (caseId: string): ServiceRecord => ({ id: `record-${crypto.randomUUID()}`, caseId, happenedAt: `${taipeiDay()}T10:00`, summary: '', recommendedProductIds: [], outcome: '', followUpItems: [], staffConfirmed: false, staffId: 'staff-demo' })
+
+export function ServiceRecords() {
+  const { state, setActiveCaseId, saveRecord, updateStatus } = useWorkspace()
+  const [caseId, setCaseId] = useState(state.cases.find((item) => item.status === 'served')?.id ?? state.cases[0]?.id ?? '')
+  const [editing, setEditing] = useState<ServiceRecord>(() => blankRecord(caseId))
+  const [followUpText, setFollowUpText] = useState('')
+  const selectedCase = state.cases.find((item) => item.id === caseId)
+  const caseRecords = useMemo(() => state.records.filter((record) => record.caseId === caseId).sort((a, b) => b.happenedAt.localeCompare(a.happenedAt)), [caseId, state.records])
+  useEffect(() => { if (selectedCase) setActiveCaseId(selectedCase.id) }, [selectedCase, setActiveCaseId])
+  const switchCase = (nextId: string) => { setCaseId(nextId); setEditing(blankRecord(nextId)); setFollowUpText('') }
+  if (!selectedCase) return <EmptyState title="沒有可記錄的示範案件" body="請重設示範資料後再試一次。" />
+  const save = () => {
+    if (!editing.summary.trim() || !editing.outcome.trim()) return
+    const finalRecord = { ...editing, followUpItems: followUpText.split('\n').map((item) => item.trim()).filter(Boolean), staffConfirmed: true }
+    saveRecord(finalRecord)
+    if (selectedCase.status === 'prepared') updateStatus(selectedCase.id, 'served', '已新增服務紀錄並標記為已服務。')
+    setEditing(blankRecord(caseId))
+    setFollowUpText('')
+  }
+  const draft = () => setEditing((current) => ({ ...current, aiDraft: `示範草稿：已針對「${selectedCase.needs.painPoints.join('、')}」完成情境說明，提醒顧客先確認既有設備與使用環境。`, summary: current.summary || `已與顧客討論 ${selectedCase.needs.painPoints.join('、')} 的生活情境與資訊缺口。`, outcome: current.outcome || '待顧客確認是否採用建議與安排後續追蹤。' }))
+  return <div className="page"><div className="page-heading"><div><span className="eyebrow">SERVICE CONTINUITY</span><h1>顧問服務紀錄</h1><p>保留店員筆記、建議方向與待追蹤事項，讓下一次服務不必重新理解。</p></div><SourceLabel /></div><section className="record-case-picker"><label htmlFor="record-case">案件</label><select id="record-case" value={caseId} onChange={(event) => switchCase(event.target.value)}>{state.cases.map((item) => <option value={item.id} key={item.id}>{item.caseCode}・{item.needs.painPoints[0]}</option>)}</select><StatusBadge status={selectedCase.status} /><span className="muted">既有設備：{selectedCase.needs.existingDevices.join('、') || '尚未提供'}</span></section><div className="records-layout"><section className="panel record-form"><div className="panel__heading"><div><h2>{editing.id.startsWith('record-') && !state.records.some((record) => record.id === editing.id) ? '新增服務紀錄' : '編輯示範紀錄'}</h2><p>需由店員確認後才會寫入時間軸。</p></div><button className="button button--secondary button--compact" onClick={draft}><Sparkles size={15} />AI 整理草稿</button></div>{editing.aiDraft && <p className="inline-notice"><Sparkles size={15} />{editing.aiDraft}（AI 示範草稿，請修訂後再儲存。）</p>}<div className="form-grid"><label>服務日期<input type="datetime-local" value={editing.happenedAt.slice(0, 16)} onChange={(event) => setEditing({ ...editing, happenedAt: event.target.value })} /></label><label>服務結果<input value={editing.outcome} onChange={(event) => setEditing({ ...editing, outcome: event.target.value })} placeholder="例如：完成操作說明，顧客待考慮" /></label><label className="form-grid__wide">店員筆記<textarea value={editing.summary} onChange={(event) => setEditing({ ...editing, summary: event.target.value })} placeholder="記錄顧客確認過的需求、限制與提供的建議…" rows={5} /></label><label className="form-grid__wide">待追蹤事項（每行一項）<textarea value={followUpText} onChange={(event) => setFollowUpText(event.target.value)} placeholder="一週後確認使用狀況\n確認是否需要安排進一步操作教學" rows={3} /></label></div><fieldset><legend>建議商品（示範資料）</legend><div className="product-checkboxes">{state.products.map((product) => <label key={product.id}><input type="checkbox" checked={editing.recommendedProductIds.includes(product.id)} onChange={() => setEditing((current) => ({ ...current, recommendedProductIds: current.recommendedProductIds.includes(product.id) ? current.recommendedProductIds.filter((id) => id !== product.id) : [...current.recommendedProductIds, product.id] }))} />{product.model}</label>)}</div></fieldset><div className="record-form__actions"><button className="button" disabled={!editing.summary.trim() || !editing.outcome.trim()} onClick={save}><Save size={16} />確認並儲存紀錄</button><button className="button button--secondary" onClick={() => { setEditing(blankRecord(caseId)); setFollowUpText('') }}><Plus size={16} />清除表單</button></div></section><aside className="panel timeline"><div className="panel__heading"><div><h2>服務時間軸</h2><p>{caseRecords.length} 筆已儲存紀錄</p></div></div>{caseRecords.length ? <ol>{caseRecords.map((record) => <li key={record.id}><span className="timeline__dot"><Check size={13} /></span><article><time>{formatDate(record.happenedAt, true)}</time><h3>{record.outcome}</h3><p>{record.summary}</p>{record.recommendedProductIds.length > 0 && <div className="timeline__tags">{record.recommendedProductIds.map((productId) => <span key={productId}>{state.products.find((product) => product.id === productId)?.model}</span>)}</div>}{record.followUpItems.length > 0 && <ul>{record.followUpItems.map((item) => <li key={item}>{item}</li>)}</ul>}<button className="text-button" onClick={() => { setEditing(record); setFollowUpText(record.followUpItems.join('\n')) }}><FilePenLine size={14} />編輯此示範紀錄</button></article></li>)}</ol> : <EmptyState title="尚無服務紀錄" body="填寫左側表單後，時間軸會立即更新並保留在本瀏覽器。" />}</aside></div></div>
+}

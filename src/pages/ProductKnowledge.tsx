@@ -1,0 +1,28 @@
+import { Check, ChevronDown, GitCompareArrows, PackagePlus, Search, SlidersHorizontal } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { useWorkspace } from '../app/WorkspaceContext'
+import { EmptyState, SourceLabel } from '../components/ui'
+import type { ProductCategory } from '../types/domain'
+import { formatMoney } from '../utils/format'
+
+const categories: Array<ProductCategory | 'all'> = ['all', '空氣品質', '地板清潔', '居家監控', '智慧照明', '智慧生活']
+
+export function ProductKnowledge() {
+  const { state, setActiveCaseId, attachProducts } = useWorkspace()
+  const [params] = useSearchParams()
+  const activeCase = state.cases.find((item) => item.caseCode === params.get('case')) ?? state.cases.find((item) => item.id === undefined)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<ProductCategory | 'all'>('all')
+  const [budget, setBudget] = useState<'all' | 'under5000' | '5000to10000' | 'over10000'>('all')
+  const [selected, setSelected] = useState<string[]>([])
+  useEffect(() => { if (activeCase) setActiveCaseId(activeCase.id) }, [activeCase, setActiveCaseId])
+  const products = useMemo(() => state.products.filter((product) => {
+    const content = [product.brand, product.model, product.category, ...product.features].join(' ').toLowerCase()
+    const price = product.priceTwd ?? Infinity
+    return (!query || content.includes(query.toLowerCase())) && (category === 'all' || product.category === category) && (budget === 'all' || (budget === 'under5000' && price < 5000) || (budget === '5000to10000' && price >= 5000 && price <= 10000) || (budget === 'over10000' && price > 10000))
+  }), [budget, category, query, state.products])
+  const selectedProducts = state.products.filter((product) => selected.includes(product.id))
+  const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 3 ? [...current, id] : current)
+  return <div className="page"><div className="page-heading"><div><span className="eyebrow">PRODUCTS & KNOWLEDGE</span><h1>商品與知識查詢</h1><p>模擬查詢與比較工具；所有商品、價格與庫存狀態都不是即時官方資訊。</p></div><SourceLabel /></div>{activeCase ? <section className="case-context"><div><span>正在為 <strong>{activeCase.caseCode}</strong> 準備方案</span><p>{activeCase.needs.painPoints.join('、')}・預算 {activeCase.needs.budgetRange}</p></div><button className="button button--secondary" disabled={!selected.length} onClick={() => attachProducts(activeCase.id, selected)}><PackagePlus size={16} />加入 {selected.length} 件到案件</button></section> : <section className="inline-notice">尚未選擇案件。仍可比較商品，但不會寫入任何案件。</section>}<section className="filter-bar"><label><Search size={16} /><span className="sr-only">搜尋商品</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="品牌、型號、關鍵字" /></label><label><SlidersHorizontal size={16} /><span className="sr-only">類別篩選</span><select value={category} onChange={(event) => setCategory(event.target.value as ProductCategory | 'all')}>{categories.map((item) => <option key={item} value={item}>{item === 'all' ? '所有類別' : item}</option>)}</select></label><label><ChevronDown size={16} /><span className="sr-only">預算篩選</span><select value={budget} onChange={(event) => setBudget(event.target.value as typeof budget)}><option value="all">所有示範價</option><option value="under5000">5,000 以下</option><option value="5000to10000">5,000–10,000</option><option value="over10000">10,000 以上</option></select></label><span className="selection-count">已選 {selected.length}/3 項比較</span></section><div className="products-layout"><section className="product-grid">{products.length ? products.map((product) => <article className={`product-card ${selected.includes(product.id) ? 'product-card--selected' : ''}`} key={product.id}><div className="product-card__top"><span>{product.category}</span><label className="compare-check"><input type="checkbox" checked={selected.includes(product.id)} disabled={!selected.includes(product.id) && selected.length >= 3} onChange={() => toggle(product.id)} /><span>{selected.includes(product.id) ? '已加入比較' : '加入比較'}</span></label></div><h2>{product.brand}<br /><strong>{product.model}</strong></h2><p className="price">{formatMoney(product.priceTwd)} <small>示範價</small></p><ul>{product.features.map((feature) => <li key={feature}><Check size={14} />{feature}</li>)}</ul><div className="product-card__meta"><SourceLabel source={product.sourceType} /><small>最近標示：{product.lastVerifiedAt || '未提供'}</small></div><p className="inventory-note">庫存：{product.inventoryNote || '尚未提供'}</p></article>) : <EmptyState title="找不到相符商品" body="請清除部分篩選條件或改用較短的關鍵字。" />}</section><aside className="compare-panel"><div className="panel__heading"><div><span className="eyebrow"><GitCompareArrows size={13} />最多三項</span><h2>商品比較</h2></div></div>{selectedProducts.length ? <div className="comparison">{selectedProducts.map((product) => <article key={product.id}><strong>{product.model}</strong><span>{product.category}</span>{Object.entries(product.specs).map(([key, value]) => <p key={key}><small>{key}</small>{value}</p>)}<p className="comparison__good">適合：{product.features.slice(0, 2).join('、')}</p><p className="comparison__limit">需確認：實際相容性、庫存、保固條款</p></article>)}</div> : <EmptyState title="尚未選擇商品" body="從左側勾選 1–3 項示範商品，即可並排比較規格。" />}</aside></div><section className="knowledge-strip"><div><h2>知識提示</h2><p>操作設定、常見問題與保固／維修資訊應以正式公開或授權來源再次查證。</p></div><ul><li><strong>操作設定</strong><span>先確認裝置型號與家庭網路條件</span></li><li><strong>常見問題</strong><span>以實際症狀與產品說明排除</span></li><li><strong>售後指引</strong><span>不在此原型實作保固申請或派工</span></li></ul></section></div>
+}
